@@ -103,7 +103,7 @@ export const AgentForm = ({
                         <FormLabel>Instructions</FormLabel>
                         <FormControl>
                             <Textarea {...field} 
-                            placeholder="It will help agents to answer specific user questions and help them with tasks." 
+                            placeholder="It will help agents to answer specific questions and help them with tasks." 
                             />
                         </FormControl>
                         <FormMessage  />
