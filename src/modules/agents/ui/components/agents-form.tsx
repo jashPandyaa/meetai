@@ -104,7 +104,7 @@ export const AgentForm = ({
                     <FormItem>
                         <FormLabel>Name</FormLabel>
                         <FormControl>
-                            <Input {...field} placeholder="Agent name" />
+                            <Input {...field} placeholder="e.g. IT Agent" />
                         </FormControl>
                         <FormMessage  />
                     </FormItem>
