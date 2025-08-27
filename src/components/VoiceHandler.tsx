@@ -187,54 +187,52 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
   }
 
   return (
-    <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border max-w-sm">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="fixed top-2 right-2 
+                    md:top-auto md:right-auto md:bottom-4 md:right-4 
+                    bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border max-w-[180px]
+                    md:max-w-sm md:p-4 z-50">
+      <div className="flex items-center gap-1 mb-1">
         <button
           onClick={toggleListening}
-          className={`p-2 rounded-full ${
+          className={`p-1 rounded-full md:p-2 ${
             isListening 
               ? 'bg-red-500 text-white animate-pulse' 
               : 'bg-blue-500 text-white hover:bg-blue-600'
           }`}
           disabled={isSpeaking}
         >
-          {isListening ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          {isListening ? <Mic className="w-3 h-3 md:w-4 md:h-4" /> : <MicOff className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
         
         <button
           onClick={stopSpeaking}
-          className={`p-2 rounded-full ${
+          className={`p-1 rounded-full md:p-2 ${
             isSpeaking 
               ? 'bg-orange-500 text-white' 
               : 'bg-gray-300 text-gray-500'
           }`}
           disabled={!isSpeaking}
         >
-          {isSpeaking ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          {isSpeaking ? <Volume2 className="w-3 h-3 md:w-4 md:h-4" /> : <VolumeX className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
         
-        <div className="flex-1 text-sm">
-          <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-red-500' : 'bg-gray-300'} inline-block mr-2`}></div>
-          {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Click mic to talk'}
+        <div className="flex-1 text-[10px] md:text-sm">
+          <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${isListening ? 'bg-red-500' : 'bg-gray-300'} inline-block mr-1 md:mr-2`}></div>
+          {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Click mic'}
         </div>
       </div>
       
       {transcript && (
-        <div className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+        <div className="text-[10px] text-gray-600 dark:text-gray-300 mb-1 md:text-sm md:mb-2">
           <strong>You:</strong> {transcript}
         </div>
       )}
       
       {error && (
-        <div className="text-sm text-red-500 mb-2">
+        <div className="text-[10px] text-red-500 mb-1 md:text-sm md:mb-2">
           {error}
         </div>
       )}
-      
-      <div className="text-xs text-gray-500">
-        Powered by Gemini AI + Web Speech API
-      </div>
     </div>
   );
 }
-
