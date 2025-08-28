@@ -237,7 +237,6 @@
 //   );
 // }
 
-
 // components/VoiceHandler.tsx
 'use client';
 
@@ -262,102 +261,64 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
   const [transcript, setTranscript] = useState<string>('');
   const [conversationHistory, setConversationHistory] = useState<ConversationItem[]>([]);
   const [error, setError] = useState<string>('');
-  const [isSupported, setIsSupported] = useState<boolean>(true);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMobileRef = useRef<boolean>(false);
 
-  // Initialize Speech Recognition with mobile compatibility
+  // Initialize Speech Recognition
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Check for speech recognition support
+      // Detect mobile device
+      isMobileRef.current = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
       if (SpeechRecognition) {
-        try {
-          recognitionRef.current = new SpeechRecognition();
-          if (recognitionRef.current) {
-            // Mobile-optimized settings
-            recognitionRef.current.continuous = false; // Changed from true for mobile
-            recognitionRef.current.interimResults = false; // Changed from true for mobile
-            recognitionRef.current.lang = 'en-US';
-            recognitionRef.current.maxAlternatives = 1;
+        recognitionRef.current = new SpeechRecognition();
+        if (recognitionRef.current) {
+          // Mobile-optimized settings
+          recognitionRef.current.continuous = !isMobileRef.current;
+          recognitionRef.current.interimResults = !isMobileRef.current;
+          recognitionRef.current.lang = 'en-US';
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            recognitionRef.current.onresult = (event: any) => {
-              let finalTranscript = '';
-              
-              for (let i = 0; i < event.results.length; i++) {
-                if (event.results[i].isFinal || !recognitionRef.current.interimResults) {
-                  finalTranscript += event.results[i][0].transcript;
-                }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          recognitionRef.current.onresult = (event: any) => {
+            let finalTranscript = '';
+            
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              if (event.results[i].isFinal || !recognitionRef.current.interimResults) {
+                finalTranscript += event.results[i][0].transcript;
               }
+            }
 
-              if (finalTranscript.trim()) {
-                setTranscript(finalTranscript.trim());
+            if (finalTranscript) {
+              setTranscript(finalTranscript);
+              // Stop listening immediately on mobile after getting result
+              if (isMobileRef.current) {
                 setIsListening(false);
-                handleUserSpeech(finalTranscript.trim());
               }
-            };
+              handleUserSpeech(finalTranscript);
+            }
+          };
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            recognitionRef.current.onerror = (event: any) => {
-              console.error('Speech recognition error:', event.error);
-              let errorMessage = 'Speech recognition error: ' + event.error;
-              
-              // Handle specific mobile errors
-              if (event.error === 'not-allowed') {
-                errorMessage = 'Microphone permission denied. Please allow microphone access.';
-              } else if (event.error === 'network') {
-                errorMessage = 'Network error. Please check your connection.';
-              } else if (event.error === 'no-speech') {
-                errorMessage = 'No speech detected. Try speaking louder.';
-              }
-              
-              setError(errorMessage);
-              setIsListening(false);
-            };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          recognitionRef.current.onerror = (event: any) => {
+            console.error('Speech recognition error:', event.error);
+            setError('Speech recognition error: ' + event.error);
+            setIsListening(false);
+          };
 
-            recognitionRef.current.onstart = () => {
-              console.log('Speech recognition started');
-              setError('');
-              
-              // Add timeout for mobile (auto-stop after 10 seconds)
-              timeoutRef.current = setTimeout(() => {
-                if (recognitionRef.current && isListening) {
-                  recognitionRef.current.stop();
-                }
-              }, 10000);
-            };
-
-            recognitionRef.current.onend = () => {
-              console.log('Speech recognition ended');
-              setIsListening(false);
-              if (timeoutRef.current) {
-                clearTimeout(timeoutRef.current);
-                timeoutRef.current = null;
-              }
-            };
-          }
-        } catch (err) {
-          console.error('Failed to initialize speech recognition:', err);
-          setIsSupported(false);
-          setError('Speech recognition not supported on this device');
+          recognitionRef.current.onend = () => {
+            setIsListening(false);
+          };
         }
-      } else {
-        setIsSupported(false);
-        setError('Speech recognition not supported in this browser');
       }
 
       // Initialize Speech Synthesis
-      if ('speechSynthesis' in window) {
-        synthRef.current = window.speechSynthesis;
-      } else {
-        console.warn('Speech synthesis not supported');
-      }
+      synthRef.current = window.speechSynthesis;
     }
 
     return () => {
@@ -367,18 +328,16 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
       if (synthRef.current) {
         synthRef.current.cancel();
       }
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
     };
   }, []);
 
   const handleUserSpeech = async (userMessage: string): Promise<void> => {
     try {
       setError('');
-      console.log('Processing speech:', userMessage);
       
-      // Call your API route with additional debugging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       const response = await fetch('/api/ai-response', {
         method: 'POST',
         headers: {
@@ -386,139 +345,147 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
         },
         body: JSON.stringify({
           message: userMessage,
-          context: `This is during a video call meeting on ${navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop'}`,
+          context: `This is during a video call meeting`,
           conversationHistory: conversationHistory
         }),
+        signal: controller.signal
       });
 
-      console.log('API Response status:', response.status);
-      
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('API Response data:', data);
       
-      if (data.success && data.response) {
+      if (data.success) {
         const aiResponse: string = data.response;
         
         // Update conversation history
         const newHistory: ConversationItem[] = [
           ...conversationHistory,
           { user: userMessage, assistant: aiResponse, timestamp: new Date() }
-        ].slice(-10); // Keep only last 10 exchanges
+        ].slice(-10);
         
         setConversationHistory(newHistory);
         
-        // Speak the response with mobile-optimized settings
-        speakResponse(aiResponse);
+        // CRITICAL FIX: Force speech synthesis to work on mobile
+        speakResponseMobile(aiResponse);
         
         // Callback to parent component
         onResponse?.(aiResponse);
         onTranscript?.(userMessage);
         
       } else {
-        throw new Error(data.error || 'Invalid response format');
+        setError('Failed to get AI response');
+        speakResponseMobile("I'm sorry, I couldn't process that. Could you try again?");
       }
       
     } catch (error) {
       console.error('Error processing speech:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setError('Error processing your message: ' + errorMessage);
-      speakResponse("I'm having trouble right now. Can you repeat that?");
+      setError('Error processing your message');
+      speakResponseMobile("I'm having trouble right now. Can you repeat that?");
     }
   };
 
-  const speakResponse = (text: string): void => {
-    if (!synthRef.current || !text) {
-      console.warn('TTS not available or no text provided');
-      return;
-    }
+  // MOBILE-SPECIFIC TTS SOLUTION
+  const speakResponseMobile = (text: string): void => {
+    if (!synthRef.current || !text) return;
 
-    try {
-      // Cancel any ongoing speech
-      synthRef.current.cancel();
+    // Cancel any ongoing speech first
+    synthRef.current.cancel();
+    
+    // Critical mobile fix: Small delay before speaking
+    setTimeout(() => {
+      if (!synthRef.current) return;
+
+      const utterance = new SpeechSynthesisUtterance(text);
       
-      // Wait a moment before speaking (helps with mobile)
-      setTimeout(() => {
-        if (!synthRef.current) return;
-        
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Mobile-optimized TTS settings
-        utterance.rate = 0.8; // Slightly slower for mobile
-        utterance.pitch = 1;
-        utterance.volume = 0.9; // Slightly higher volume
-        
-        // Try to use a better voice if available
+      // Mobile-optimized settings
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      
+      // Mobile-specific voice selection
+      if (isMobileRef.current) {
         const voices = synthRef.current.getVoices();
-        const englishVoices = voices.filter(voice => voice.lang.startsWith('en'));
-        if (englishVoices.length > 0) {
-          // Prefer female voices as they tend to work better on mobile
-          const femaleVoice = englishVoices.find(voice => voice.name.toLowerCase().includes('female'));
-          utterance.voice = femaleVoice || englishVoices[0];
+        if (voices.length > 0) {
+          // Find best voice for mobile
+          const selectedVoice = voices.find(voice => 
+            voice.lang.startsWith('en') && !voice.name.includes('Google')
+          ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0];
+          
+          utterance.voice = selectedVoice;
         }
-        
-        utterance.onstart = () => {
-          console.log('TTS started');
-          setIsSpeaking(true);
-        };
-        
-        utterance.onend = () => {
-          console.log('TTS ended');
-          setIsSpeaking(false);
-        };
-        
-        utterance.onerror = (error) => {
-          console.error('TTS error:', error);
-          setIsSpeaking(false);
-        };
-
-        synthRef.current.speak(utterance);
-      }, 100);
+      }
       
-    } catch (error) {
-      console.error('Error in speakResponse:', error);
-      setIsSpeaking(false);
-    }
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+      };
+      
+      utterance.onend = () => {
+        setIsSpeaking(false);
+      };
+      
+      utterance.onerror = (error) => {
+        console.error('TTS error:', error);
+        setIsSpeaking(false);
+        
+        // Retry once on mobile if it fails
+        if (isMobileRef.current) {
+          setTimeout(() => {
+            if (synthRef.current) {
+              synthRef.current.speak(new SpeechSynthesisUtterance(text));
+            }
+          }, 500);
+        }
+      };
+
+      // CRITICAL: Force synthesis to start on mobile
+      if (isMobileRef.current) {
+        // Ensure synthesis is ready
+        if (synthRef.current.paused) {
+          synthRef.current.resume();
+        }
+      }
+
+      synthRef.current.speak(utterance);
+      
+      // Mobile fallback: If TTS doesn't start within 2 seconds, try again
+      if (isMobileRef.current) {
+        setTimeout(() => {
+          if (!isSpeaking && synthRef.current) {
+            synthRef.current.cancel();
+            synthRef.current.speak(utterance);
+          }
+        }, 2000);
+      }
+      
+    }, isMobileRef.current ? 200 : 50);
   };
 
-  const toggleListening = async (): Promise<void> => {
-    if (!recognitionRef.current || !isSupported) {
-      setError('Speech recognition not supported on this device');
+  const toggleListening = (): void => {
+    if (!recognitionRef.current) {
+      setError('Speech recognition not supported in this browser');
       return;
     }
 
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
-      return;
-    }
-
-    try {
-      // Request microphone permission explicitly for mobile
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Close the stream immediately as we just wanted to request permission
-          stream.getTracks().forEach(track => track.stop());
-        } catch (permissionError) {
-          console.error('Microphone permission error:', permissionError);
-          setError('Microphone permission denied. Please allow microphone access.');
-          return;
-        }
-      }
-
+    } else {
       setTranscript('');
       setError('');
+      
+      // Mobile-specific: Stop any ongoing TTS before starting recognition
+      if (isMobileRef.current && synthRef.current) {
+        synthRef.current.cancel();
+        setIsSpeaking(false);
+      }
+      
       recognitionRef.current.start();
       setIsListening(true);
-      
-    } catch (error) {
-      console.error('Error starting recognition:', error);
-      setError('Failed to start speech recognition');
-      setIsListening(false);
     }
   };
 
@@ -529,7 +496,7 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
     }
   };
 
-  if (!isCallActive || !isSupported) {
+  if (!isCallActive) {
     return null;
   }
 
@@ -541,24 +508,26 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
       <div className="flex items-center gap-1 mb-1">
         <button
           onClick={toggleListening}
-          className={`p-1 rounded-full md:p-2 touch-manipulation ${
+          className={`p-1 rounded-full md:p-2 ${
             isListening 
               ? 'bg-red-500 text-white animate-pulse' 
-              : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
+              : 'bg-blue-500 text-white hover:bg-blue-600'
           }`}
           disabled={isSpeaking}
+          style={{ touchAction: 'manipulation' }}
         >
           {isListening ? <Mic className="w-3 h-3 md:w-4 md:h-4" /> : <MicOff className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
         
         <button
           onClick={stopSpeaking}
-          className={`p-1 rounded-full md:p-2 touch-manipulation ${
+          className={`p-1 rounded-full md:p-2 ${
             isSpeaking 
               ? 'bg-orange-500 text-white' 
               : 'bg-gray-300 text-gray-500'
           }`}
           disabled={!isSpeaking}
+          style={{ touchAction: 'manipulation' }}
         >
           {isSpeaking ? <Volume2 className="w-3 h-3 md:w-4 md:h-4" /> : <VolumeX className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
@@ -578,13 +547,6 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
       {error && (
         <div className="text-[10px] text-red-500 mb-1 md:text-sm md:mb-2">
           {error}
-        </div>
-      )}
-      
-      {/* Debug info for mobile */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="text-[8px] text-gray-500 mt-1">
-          UA: {navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'}
         </div>
       )}
     </div>
