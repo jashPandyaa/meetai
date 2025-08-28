@@ -252,11 +252,12 @@ interface ConversationItem {
 
 interface VoiceHandlerProps {
   isCallActive: boolean;
+  meetingId?: string;
   onTranscript?: (transcript: string) => void;
   onResponse?: (response: string) => void;
 }
 
-export default function VoiceHandler({ isCallActive, onTranscript, onResponse }: VoiceHandlerProps) {
+export default function VoiceHandler({ isCallActive, meetingId, onTranscript, onResponse }: VoiceHandlerProps) {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
@@ -500,7 +501,8 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
       const requestBody = {
         message: userMessage,
         context: `This is during a video call meeting${isMobile ? ' on mobile device' : ''}`,
-        conversationHistory: conversationHistory
+        conversationHistory: conversationHistory,
+        meetingId: meetingId // Include meeting ID
       };
       
       console.log('📡 Request body:', requestBody);
