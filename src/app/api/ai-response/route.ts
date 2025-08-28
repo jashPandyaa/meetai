@@ -114,11 +114,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse>>
     }
 
     const body = await req.json();
-    console.log('Request body received:', { 
+    console.log('📡 Request body received:', { 
       messageLength: body.message?.length,
       hasContext: !!body.context,
       historyLength: body.conversationHistory?.length || 0,
-      message: body.message // Log the actual message for debugging
+      message: body.message, // Log the actual message for debugging
+      isMobile: body.context?.includes('mobile device'),
+      timestamp: new Date().toISOString()
     });
 
     const { message, context, conversationHistory }: RequestBody = body;
@@ -189,7 +191,8 @@ User said: "${message}"
 
 Reply briefly and naturally:`;
 
-    console.log('Sending request to Gemini API...');
+    console.log('🤖 Sending request to Gemini API...');
+    console.log('🤖 Prompt preview:', prompt.substring(0, 200) + '...');
     
     // Set timeout for mobile requests
     const timeout = new Promise((_, reject) => 

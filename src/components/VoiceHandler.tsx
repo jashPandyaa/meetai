@@ -274,8 +274,9 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
   // Detect mobile device
   useEffect(() => {
     const checkMobile = (): boolean => {
-      const userAgent = navigator.userAgent || navigator.vendor || (window as unknown as { opera?: string }).opera || '';
-      const isMobileDevice: boolean = /android|blackberry|iemobile|ipad|iphone|ipod|opera mini|webos/i.test(userAgent) ||
+      const userAgent = navigator.userAgent || navigator.vendor || (window as unknown as { opera?: string }).opera;
+      const uaString = typeof userAgent === 'string' ? userAgent : '';
+      const isMobileDevice: boolean = /android|blackberry|iemobile|ipad|iphone|ipod|opera mini|webos/i.test(uaString) ||
                              Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
       setIsMobile(isMobileDevice);
       return isMobileDevice;
@@ -298,8 +299,8 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
           
           if (recognitionRef.current) {
             // Mobile-optimized settings
-            recognitionRef.current.continuous = !isMobile; // Disable continuous on mobile
-            recognitionRef.current.interimResults = !isMobile; // Disable interim on mobile
+            recognitionRef.current.continuous = false; // Always false for better mobile compatibility
+            recognitionRef.current.interimResults = true; // Enable to catch results
             recognitionRef.current.lang = 'en-US';
             recognitionRef.current.maxAlternatives = 1;
             
@@ -310,13 +311,18 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onresult = (event: any) => {
-              console.log('Speech recognition result event:', event);
+              console.log('🎤 Speech recognition result event:', event);
+              console.log('🎤 Results length:', event.results.length);
+              console.log('🎤 Is mobile:', isMobile);
               
               let finalTranscript = '';
               let interimTranscript = '';
               
               for (let i = event.resultIndex; i < event.results.length; i++) {
                 const transcript = event.results[i][0].transcript;
+                const confidence = event.results[i][0].confidence;
+                
+                console.log(`🎤 Result ${i}: "${transcript}" (final: ${event.results[i].isFinal}, confidence: ${confidence})`);
                 
                 if (event.results[i].isFinal) {
                   finalTranscript += transcript;
@@ -325,38 +331,57 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
                 }
               }
 
-              // Update transcript display
-              setTranscript(interimTranscript || finalTranscript);
+              // Update transcript display immediately
+              const displayTranscript = finalTranscript || interimTranscript;
+              if (displayTranscript.trim()) {
+                setTranscript(displayTranscript.trim());
+              }
 
-              // Handle final results
-              if (finalTranscript.trim()) {
-                console.log('Final transcript:', finalTranscript);
-                setTranscript(finalTranscript.trim());
+              // Handle final results OR mobile interim results (mobile often doesn't send final)
+              const transcriptToProcess = finalTranscript.trim() || (isMobile && interimTranscript.trim());
+              
+              if (transcriptToProcess && transcriptToProcess.length > 2) {
+                console.log('🎤 Processing transcript:', transcriptToProcess);
+                setTranscript(transcriptToProcess);
                 
-                // Stop listening immediately on mobile
-                if (isMobile && recognitionRef.current) {
-                  recognitionRef.current.stop();
+                // Stop listening immediately
+                if (recognitionRef.current) {
+                  try {
+                    recognitionRef.current.stop();
+                  } catch (e) {
+                    console.warn('Error stopping recognition:', e);
+                  }
                 }
                 
-                handleUserSpeech(finalTranscript.trim());
+                // Process the speech
+                setTimeout(() => {
+                  handleUserSpeech(transcriptToProcess);
+                }, 100);
               }
             };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onstart = () => {
-              console.log('Speech recognition started');
+              console.log('🎤 Speech recognition started (mobile:', isMobile, ')');
               setIsListening(true);
               setError('');
+              setTranscript('');
               
-              // Set timeout for mobile devices
-              if (isMobile) {
-                timeoutRef.current = setTimeout(() => {
-                  if (recognitionRef.current && isListening) {
-                    console.log('Mobile timeout - stopping recognition');
-                    recognitionRef.current.stop();
-                  }
-                }, 8000); // 8 seconds timeout for mobile
+              // Set timeout for mobile devices (more aggressive)
+              if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
               }
+              
+              timeoutRef.current = setTimeout(() => {
+                console.log('⏰ Recognition timeout - forcing stop');
+                if (recognitionRef.current && isListening) {
+                  try {
+                    recognitionRef.current.stop();
+                  } catch (e) {
+                    console.warn('Error in timeout stop:', e);
+                  }
+                }
+              }, isMobile ? 6000 : 10000); // Shorter timeout for mobile
             };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -386,7 +411,7 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
             };
 
             recognitionRef.current.onend = () => {
-              console.log('Speech recognition ended');
+              console.log('🎤 Speech recognition ended');
               setIsListening(false);
               
               // Clear timeout
@@ -451,43 +476,59 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
 
   const handleUserSpeech = useCallback(async (userMessage: string): Promise<void> => {
     if (isProcessing) {
-      console.log('Already processing, skipping...');
+      console.log('❌ Already processing, skipping...');
       return;
     }
+
+    console.log('🚀 Starting handleUserSpeech:', userMessage);
+    console.log('🚀 Is mobile:', isMobile);
 
     try {
       setIsProcessing(true);
       setError('');
-      console.log('Processing user speech:', userMessage);
       
       // Call your API route with mobile-specific timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), isMobile ? 15000 : 10000);
+      const timeoutMs = isMobile ? 20000 : 15000; // Increased timeout for mobile
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ Request timeout after', timeoutMs, 'ms');
+        controller.abort();
+      }, timeoutMs);
+      
+      console.log('📡 Making API request...');
+      
+      const requestBody = {
+        message: userMessage,
+        context: `This is during a video call meeting${isMobile ? ' on mobile device' : ''}`,
+        conversationHistory: conversationHistory
+      };
+      
+      console.log('📡 Request body:', requestBody);
       
       const response = await fetch('/api/ai-response', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          message: userMessage,
-          context: `This is during a video call meeting${isMobile ? ' on mobile device' : ''}`,
-          conversationHistory: conversationHistory
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 
       clearTimeout(timeoutId);
+      console.log('📡 Response status:', response.status);
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ HTTP error:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log('API response:', data);
+      console.log('📡 API response data:', data);
       
       if (data.success && data.response) {
         const aiResponse: string = data.response;
+        console.log('✅ AI response received:', aiResponse);
         
         // Update conversation history
         const newHistory: ConversationItem[] = [
@@ -497,7 +538,11 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
         
         setConversationHistory(newHistory);
         
+        // Clear any error
+        setError('');
+        
         // Speak the response with mobile optimization
+        console.log('🔊 Starting TTS...');
         speakResponse(aiResponse);
         
         // Callback to parent component
@@ -505,23 +550,35 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
         onTranscript?.(userMessage);
         
       } else {
-        console.error('API response error:', data);
-        setError('Failed to get AI response');
+        console.error('❌ API response error:', data);
+        const errorMsg = data.error || 'Failed to get AI response';
+        setError(errorMsg);
         speakResponse("I'm sorry, I couldn't process that. Could you try again?");
       }
       
     } catch (error) {
-      console.error('Error processing speech:', error);
+      console.error('❌ Error processing speech:', error);
       
-      if (error instanceof Error && error.name === 'AbortError') {
-        setError('Request timed out. Please try again.');
-        speakResponse("The request took too long. Can you try again?");
-      } else {
-        setError('Error processing your message');
-        speakResponse("I'm having trouble right now. Can you repeat that?");
+      let errorMessage = 'Error processing your message';
+      let spokenMessage = "I'm having trouble right now. Can you repeat that?";
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Request timed out. Please try again.';
+          spokenMessage = "That took too long to process. Can you try again?";
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error. Check your connection.';
+          spokenMessage = "I can't connect right now. Check your internet.";
+        } else {
+          errorMessage = error.message;
+        }
       }
+      
+      setError(errorMessage);
+      speakResponse(spokenMessage);
     } finally {
       setIsProcessing(false);
+      console.log('🏁 handleUserSpeech finished');
     }
   }, [conversationHistory, isMobile, isProcessing, onResponse, onTranscript]);
 

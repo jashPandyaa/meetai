@@ -1,74 +1,96 @@
-// components/DebugVoice.tsx - Add this temporarily for testing
+// components/DebugVoice.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function DebugVoice() {
-  const [result, setResult] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [isVisible, setIsVisible] = useState<boolean>(false);
 
-  const testAPI = async () => {
-    setLoading(true);
-    setResult('Testing...');
-    
-    try {
-      const response = await fetch('/api/ai-response', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: 'Hello, can you hear me?',
-          context: 'Test from mobile debug component',
-        }),
-      });
+  useEffect(() => {
+    // Override console.log to capture logs
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
 
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
-      
-    } catch (error) {
-      setResult('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      setLoading(false);
-    }
-  };
+    const addLog = (type: string, message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setLogs(prev => [...prev.slice(-20), `[${timestamp}] ${type}: ${message}`]);
+    };
 
-  const testTTS = () => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance('Testing text to speech on mobile');
-      window.speechSynthesis.speak(utterance);
-      setResult('TTS test initiated');
-    } else {
-      setResult('TTS not supported');
-    }
-  };
+    console.log = (...args) => {
+      originalLog(...args);
+      addLog('LOG', args.join(' '));
+    };
+
+    console.error = (...args) => {
+      originalError(...args);
+      addLog('ERROR', args.join(' '));
+    };
+
+    console.warn = (...args) => {
+      originalWarn(...args);
+      addLog('WARN', args.join(' '));
+    };
+
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }, []);
+
+  if (!isVisible) {
+    return (
+      <button
+        onClick={() => setIsVisible(true)}
+        className="fixed bottom-20 left-4 bg-red-500 text-white px-2 py-1 rounded text-xs z-50"
+      >
+        Debug
+      </button>
+    );
+  }
 
   return (
-    <div className="fixed bottom-4 left-4 bg-white p-4 rounded shadow-lg max-w-xs z-50">
-      <h3 className="font-bold mb-2">Debug Mobile Voice</h3>
-      
-      <div className="space-y-2">
-        <button 
-          onClick={testAPI}
-          disabled={loading}
-          className="w-full bg-blue-500 text-white p-2 rounded text-sm"
-        >
-          {loading ? 'Testing API...' : 'Test API Call'}
-        </button>
-        
-        <button 
-          onClick={testTTS}
-          className="w-full bg-green-500 text-white p-2 rounded text-sm"
-        >
-          Test TTS
-        </button>
-      </div>
-      
-      {result && (
-        <div className="mt-2 text-xs bg-gray-100 p-2 rounded max-h-32 overflow-auto">
-          <pre>{result}</pre>
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 p-4 overflow-auto">
+      <div className="bg-white rounded p-4 max-w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold">Voice Debug Console</h3>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setLogs([])}
+              className="bg-blue-500 text-white px-2 py-1 rounded text-xs"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setIsVisible(false)}
+              className="bg-red-500 text-white px-2 py-1 rounded text-xs"
+            >
+              Close
+            </button>
+          </div>
         </div>
-      )}
+        
+        <div className="bg-black text-green-400 p-2 rounded h-96 overflow-y-auto font-mono text-xs">
+          {logs.map((log, index) => (
+            <div key={index} className="mb-1 break-words">
+              {log}
+            </div>
+          ))}
+          {logs.length === 0 && (
+            <div className="text-gray-500">No logs yet... Start speaking to see debug info</div>
+          )}
+        </div>
+        
+        <div className="mt-4 text-xs text-gray-600">
+          <p><strong>Instructions:</strong></p>
+          <p>1. Click the microphone button</p>
+          <p>2. Say something clearly</p>
+          <p>3. Watch the logs above to see what happens</p>
+          <p>4. Look for any errors or missing API responses</p>
+        </div>
+      </div>
     </div>
   );
 }
