@@ -237,479 +237,12 @@
 //   );
 // }
 
-// // components/VoiceHandler.tsx
-// 'use client';
-
-// import { useState, useEffect, useRef, useCallback } from 'react';
-// import { Mic, MicOff, Volume2, VolumeX, RefreshCw } from 'lucide-react';
-
-// interface ConversationItem {
-//   user: string;
-//   assistant: string;
-//   timestamp: Date;
-// }
-
-// interface VoiceHandlerProps {
-//   isCallActive: boolean;
-//   onTranscript?: (transcript: string) => void;
-//   onResponse?: (response: string) => void;
-// }
-
-// // Define types for Speech Recognition
-// interface SpeechRecognitionEvent extends Event {
-//   results: SpeechRecognitionResultList;
-//   resultIndex: number;
-// }
-
-// interface SpeechRecognitionErrorEvent extends Event {
-//   error: string;
-//   message: string;
-// }
-
-// interface SpeechRecognition extends EventTarget {
-//   continuous: boolean;
-//   interimResults: boolean;
-//   lang: string;
-//   maxAlternatives: number;
-//   start(): void;
-//   stop(): void;
-//   abort(): void;
-//   onresult: ((event: SpeechRecognitionEvent) => void) | null;
-//   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-//   onend: (() => void) | null;
-// }
-
-// declare global {
-//   interface Window {
-//     SpeechRecognition: new () => SpeechRecognition;
-//     webkitSpeechRecognition: new () => SpeechRecognition;
-//   }
-// }
-
-// export default function VoiceHandler({ isCallActive, onTranscript, onResponse }: VoiceHandlerProps) {
-//   const [isListening, setIsListening] = useState<boolean>(false);
-//   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-//   const [transcript, setTranscript] = useState<string>('');
-//   const [conversationHistory, setConversationHistory] = useState<ConversationItem[]>([]);
-//   const [error, setError] = useState<string>('');
-//   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-//   const [isMobile, setIsMobile] = useState<boolean>(false);
-//   const [ttsStatus, setTtsStatus] = useState<string>('');
-
-//   const recognitionRef = useRef<SpeechRecognition | null>(null);
-//   const synthRef = useRef<SpeechSynthesis | null>(null);
-//   const apiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-//   const ttsRetryCountRef = useRef<number>(0);
-
-//   // Check if mobile device
-//   useEffect(() => {
-//     if (typeof window !== 'undefined') {
-//       const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-//       setIsMobile(mobileCheck);
-//       console.log('Mobile device detected:', mobileCheck);
-//     }
-//   }, []);
-
-//   // Initialize Speech Recognition
-//   useEffect(() => {
-//     if (typeof window === 'undefined') return;
-
-//     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-//     if (!SpeechRecognition) {
-//       setError('Speech recognition not supported in this browser');
-//       return;
-//     }
-
-//     recognitionRef.current = new SpeechRecognition();
-//     const recognition = recognitionRef.current;
-
-//     // Mobile-optimized settings
-//     recognition.continuous = false; // Changed to false for better mobile compatibility
-//     recognition.interimResults = false;
-//     recognition.lang = 'en-US';
-//     recognition.maxAlternatives = 1;
-
-//     recognition.onresult = (event: SpeechRecognitionEvent) => {
-//       let finalTranscript = '';
-//       const results = event.results;
-//       const lastResult = results[results.length - 1];
-      
-//       if (lastResult.isFinal) {
-//         finalTranscript = lastResult[0].transcript;
-        
-//         if (finalTranscript.trim()) {
-//           console.log('Speech recognized:', finalTranscript);
-//           setTranscript(finalTranscript);
-//           setIsListening(false);
-//           handleUserSpeech(finalTranscript);
-//         }
-//       }
-//     };
-
-//     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-//       console.error('Speech recognition error:', event.error);
-//       setError(`Speech error: ${event.error}`);
-//       setIsListening(false);
-//     };
-
-//     recognition.onend = () => {
-//       setIsListening(false);
-//     };
-
-//     // Initialize Speech Synthesis with mobile-specific handling
-//     synthRef.current = window.speechSynthesis;
-    
-//     // Load voices when they become available (important for mobile)
-//     const loadVoices = () => {
-//       console.log('Voices loaded:', window.speechSynthesis.getVoices().length);
-//     };
-    
-//     window.speechSynthesis.onvoiceschanged = loadVoices;
-//     loadVoices(); // Initial load
-
-//     return () => {
-//       if (recognitionRef.current) {
-//         recognitionRef.current.stop();
-//       }
-//       if (apiTimeoutRef.current) {
-//         clearTimeout(apiTimeoutRef.current);
-//       }
-//       if (synthRef.current) {
-//         synthRef.current.cancel();
-//       }
-//     };
-//   }, []);
-
-//   const handleUserSpeech = useCallback(async (userMessage: string) => {
-//     if (!userMessage.trim()) return;
-    
-//     setIsProcessing(true);
-//     setError('');
-//     setTtsStatus('');
-    
-//     try {
-//       // Set timeout for API call (15 seconds)
-//       const controller = new AbortController();
-//       apiTimeoutRef.current = setTimeout(() => controller.abort(), 15000);
-      
-//       console.log('Sending request to API:', userMessage);
-      
-//       const response = await fetch('/api/ai-response', {
-//         method: 'POST',
-//         headers: {
-//           'Content-Type': 'application/json',
-//         },
-//         body: JSON.stringify({
-//           message: userMessage,
-//           context: `This is during a video call meeting`,
-//           conversationHistory: conversationHistory.slice(-3)
-//         }),
-//         signal: controller.signal
-//       });
-
-//       if (apiTimeoutRef.current) {
-//         clearTimeout(apiTimeoutRef.current);
-//         apiTimeoutRef.current = null;
-//       }
-
-//       if (!response.ok) {
-//         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-//       }
-
-//       const data = await response.json();
-//       console.log('API response received:', data);
-      
-//       if (data.success && data.response) {
-//         const aiResponse = data.response;
-        
-//         // Update conversation history
-//         const newHistory: ConversationItem[] = [
-//           ...conversationHistory,
-//           { user: userMessage, assistant: aiResponse, timestamp: new Date() }
-//         ].slice(-10);
-        
-//         setConversationHistory(newHistory);
-        
-//         // Callback to parent component
-//         onTranscript?.(userMessage);
-//         onResponse?.(aiResponse);
-        
-//         // Speak the response with mobile-specific handling
-//         speakResponse(aiResponse);
-//       } else {
-//         throw new Error(data.error || 'Failed to get AI response');
-//       }
-      
-//     } catch (error: unknown) {
-//       console.error('Error processing speech:', error);
-      
-//       // let errorMessage = 'Error processing your request';
-//       // let fallbackResponse = "I'm having trouble right now. Please try again.";
-      
-//       // // if (error instanceof Error) {
-//       // //   if (error.name === 'AbortError') {
-//       // //     errorMessage = 'Request timeout. Please check your connection.';
-//       // //     fallbackResponse = "I'm taking too long to respond. Please try again.";
-//       // //   } else if (error.message.includes('Failed to fetch')) {
-//       // //     errorMessage = 'Network connection error. Please check your internet.';
-//       // //     fallbackResponse = "I can't connect right now. Please check your internet.";
-//       // //   }
-//       // // }
-      
-//       // setError(errorMessage);
-//       // Don't try to speak on error to avoid compounding issues
-//     } finally {
-//       setIsProcessing(false);
-//     }
-//   }, [conversationHistory, onTranscript, onResponse]);
-
-//   // Mobile-specific TTS solution
-//   const speakResponse = useCallback((text: string) => {
-//     if (!text) return;
-    
-//     console.log('Attempting to speak:', text);
-//     setTtsStatus('Preparing speech...');
-    
-//     if (!synthRef.current) {
-//       console.error('Speech synthesis not available');
-//       setTtsStatus('Speech synthesis not available');
-//       return;
-//     }
-    
-//     // Cancel any ongoing speech
-//     synthRef.current.cancel();
-//     setIsSpeaking(false);
-//     ttsRetryCountRef.current = 0;
-    
-//     // Use a timeout to handle mobile TTS initialization
-//     const ttsTimeout = setTimeout(() => {
-//       executeTts(text);
-//     }, isMobile ? 500 : 100);
-    
-//     return () => clearTimeout(ttsTimeout);
-//   }, [isMobile]);
-
-//   const executeTts = (text: string) => {
-//     if (!synthRef.current) return;
-    
-//     const utterance = new SpeechSynthesisUtterance(text);
-    
-//     // Mobile-optimized settings
-//     utterance.rate = isMobile ? 0.9 : 1;
-//     utterance.pitch = 1;
-//     utterance.volume = 1;
-    
-//     // Select appropriate voice (critical for mobile)
-//     const voices = synthRef.current.getVoices();
-//     console.log('Available voices:', voices.length);
-    
-//     if (voices.length > 0) {
-//       // Prefer voices that work well on mobile
-//       const preferredVoice = voices.find(voice => 
-//         voice.lang.startsWith('en') && 
-//         (isMobile ? voice.localService : true)
-//       ) || voices[0];
-      
-//       console.log('Selected voice:', preferredVoice.name);
-//       utterance.voice = preferredVoice;
-//     }
-    
-//     utterance.onstart = () => {
-//       console.log('TTS started');
-//       setIsSpeaking(true);
-//       setTtsStatus('Speaking...');
-//       ttsRetryCountRef.current = 0;
-//     };
-    
-//     utterance.onend = () => {
-//       console.log('TTS ended');
-//       setIsSpeaking(false);
-//       setTtsStatus('');
-//     };
-    
-//     utterance.onerror = (event) => {
-//       console.error('TTS error:', event);
-//       setIsSpeaking(false);
-//       setTtsStatus(`TTS error: ${event.error}`);
-      
-//       // Retry logic for mobile
-//       if (isMobile && ttsRetryCountRef.current < 2) {
-//         ttsRetryCountRef.current += 1;
-//         console.log(`Retrying TTS (attempt ${ttsRetryCountRef.current})`);
-//         setTimeout(() => {
-//           if (synthRef.current) {
-//             synthRef.current.speak(utterance);
-//           }
-//         }, 300);
-//       }
-//     };
-    
-//     // Special handling for iOS
-//     if (isMobile && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-//       // iOS requires user interaction for audio, so we try to work around it
-//       document.body.addEventListener('touchstart', () => {
-//         if (synthRef.current && !isSpeaking) {
-//           synthRef.current.speak(utterance);
-//         }
-//       }, { once: true });
-//     }
-    
-//     try {
-//       synthRef.current.speak(utterance);
-//       setTtsStatus('Speech started...');
-//     } catch (err) {
-//       console.error('Failed to start TTS:', err);
-//       setTtsStatus('Failed to start speech');
-      
-//       // Fallback: show text response if TTS fails
-//       if (onResponse) {
-//         onResponse(text);
-//       }
-//     }
-//   };
-
-//   const toggleListening = useCallback(() => {
-//     if (!recognitionRef.current) {
-//       setError('Speech recognition not available');
-//       return;
-//     }
-
-//     if (isListening) {
-//       recognitionRef.current.stop();
-//       setIsListening(false);
-//     } else {
-//       setTranscript('');
-//       setError('');
-//       setTtsStatus('');
-      
-//       // Stop any ongoing speech before starting recognition
-//       if (synthRef.current) {
-//         synthRef.current.cancel();
-//         setIsSpeaking(false);
-//       }
-      
-//       try {
-//         recognitionRef.current.start();
-//         setIsListening(true);
-//       } catch (err) {
-//         console.error('Failed to start recognition:', err);
-//         setError('Failed to start microphone. Please check permissions.');
-//       }
-//     }
-//   }, [isListening]);
-
-//   const stopSpeaking = useCallback(() => {
-//     if (synthRef.current) {
-//       synthRef.current.cancel();
-//       setIsSpeaking(false);
-//       setTtsStatus('');
-//     }
-//   }, []);
-
-//   const retryLastRequest = useCallback(() => {
-//     if (transcript) {
-//       handleUserSpeech(transcript);
-//     }
-//   }, [transcript, handleUserSpeech]);
-
-//   if (!isCallActive) {
-//     return null;
-//   }
-
-//   return (
-//     <div className="fixed top-2 right-2 
-//                     md:top-auto md:right-auto md:bottom-4 md:right-4 
-//                     bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border max-w-[200px]
-//                     md:max-w-sm md:p-4 z-50">
-//       <div className="flex items-center gap-1 mb-1">
-//         <button
-//           onClick={toggleListening}
-//           className={`p-1 rounded-full md:p-2 ${
-//             isListening 
-//               ? 'bg-red-500 text-white animate-pulse' 
-//               : isProcessing
-//                 ? 'bg-orange-500 text-white'
-//                 : 'bg-blue-500 text-white hover:bg-blue-600'
-//           }`}
-//           disabled={isSpeaking || isProcessing}
-//           style={{ touchAction: 'manipulation' }}
-//         >
-//           {isProcessing ? (
-//             <RefreshCw className="w-3 h-3 md:w-4 md:h-4 animate-spin" />
-//           ) : isListening ? (
-//             <Mic className="w-3 h-3 md:w-4 md:h-4" />
-//           ) : (
-//             <MicOff className="w-3 h-3 md:w-4 md:h-4" />
-//           )}
-//         </button>
-        
-//         <button
-//           onClick={stopSpeaking}
-//           className={`p-1 rounded-full md:p-2 ${
-//             isSpeaking 
-//               ? 'bg-orange-500 text-white' 
-//               : 'bg-gray-300 text-gray-500 dark:bg-gray-600 dark:text-gray-300'
-//           }`}
-//           disabled={!isSpeaking}
-//           style={{ touchAction: 'manipulation' }}
-//         >
-//           {isSpeaking ? <Volume2 className="w-3 h-3 md:w-4 md:h-4" /> : <VolumeX className="w-3 h-3 md:w-4 md:h-4" />}
-//         </button>
-        
-//         <div className="flex-1 text-[10px] md:text-sm ml-1">
-//           <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
-//             isListening ? 'bg-red-500' : 
-//             isProcessing ? 'bg-orange-500' : 
-//             isSpeaking ? 'bg-green-500' : 'bg-gray-300'
-//           } inline-block mr-1 md:mr-2`}></div>
-//           {isListening ? 'Listening...' : 
-//            isProcessing ? 'Processing...' : 
-//            isSpeaking ? 'Speaking...' : 'Click mic'}
-//         </div>
-//       </div>
-      
-//       {transcript && (
-//         <div className="text-[10px] text-gray-600 dark:text-gray-300 mb-1 md:text-sm md:mb-2">
-//           <strong>You:</strong> {transcript}
-//         </div>
-//       )}
-      
-//       {ttsStatus && (
-//         <div className="text-[8px] text-blue-500 mb-1 md:text-xs">
-//           {ttsStatus}
-//         </div>
-//       )}
-      
-//       {error && (
-//         <div className="text-[10px] text-red-500 mb-1 md:text-sm md:mb-2 flex items-center justify-between">
-//           <span>{error}</span>
-//           {transcript && (
-//             <button 
-//               onClick={retryLastRequest}
-//               className="text-blue-500 ml-2"
-//               title="Retry"
-//             >
-//               <RefreshCw className="w-3 h-3" />
-//             </button>
-//           )}
-//         </div>
-//       )}
-      
-//       {isMobile && (
-//         <div className="text-[8px] text-gray-500 mt-1 md:text-xs">
-//           Mobile mode: Tap mic to start/stop
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
 
 // components/VoiceHandler.tsx
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, RefreshCw, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 
 interface ConversationItem {
   user: string;
@@ -723,146 +256,213 @@ interface VoiceHandlerProps {
   onResponse?: (response: string) => void;
 }
 
-// Define types for Speech Recognition
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message: string;
-}
-
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: new () => SpeechRecognition;
-    webkitSpeechRecognition: new () => SpeechRecognition;
-  }
-}
-
 export default function VoiceHandler({ isCallActive, onTranscript, onResponse }: VoiceHandlerProps) {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
   const [conversationHistory, setConversationHistory] = useState<ConversationItem[]>([]);
   const [error, setError] = useState<string>('');
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState<boolean>(false);
-  const [ttsStatus, setTtsStatus] = useState<string>('');
-  const [lastResponse, setLastResponse] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
-  const apiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const ttsRetryCountRef = useRef<number>(0);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitializedRef = useRef<boolean>(false);
 
-  // Check if mobile device
+  // Detect mobile device
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      setIsMobile(mobileCheck);
-      console.log('Mobile device detected:', mobileCheck);
-    }
+    const checkMobile = (): boolean => {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as unknown as { opera?: string }).opera || '';
+      const isMobileDevice: boolean = /android|blackberry|iemobile|ipad|iphone|ipod|opera mini|webos/i.test(userAgent) ||
+                             Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+      setIsMobile(isMobileDevice);
+      return isMobileDevice;
+    };
+
+    checkMobile();
   }, []);
 
-  // Initialize Speech Recognition
+  // Initialize Speech Recognition with mobile-specific handling
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || isInitializedRef.current) return;
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      setError('Speech recognition not supported in this browser');
-      return;
-    }
-
-    recognitionRef.current = new SpeechRecognition();
-    const recognition = recognitionRef.current;
-
-    // Mobile-optimized settings
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalTranscript = '';
-      const results = event.results;
-      const lastResult = results[results.length - 1];
+    const initializeSpeechRecognition = (): void => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
-      if (lastResult.isFinal) {
-        finalTranscript = lastResult[0].transcript;
+      if (SpeechRecognition) {
+        try {
+          recognitionRef.current = new SpeechRecognition();
+          
+          if (recognitionRef.current) {
+            // Mobile-optimized settings
+            recognitionRef.current.continuous = !isMobile; // Disable continuous on mobile
+            recognitionRef.current.interimResults = !isMobile; // Disable interim on mobile
+            recognitionRef.current.lang = 'en-US';
+            recognitionRef.current.maxAlternatives = 1;
+            
+            // Mobile-specific timeouts
+            if (isMobile) {
+              recognitionRef.current.grammars = undefined; // Clear grammars for better mobile performance
+            }
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            recognitionRef.current.onresult = (event: any) => {
+              console.log('Speech recognition result event:', event);
+              
+              let finalTranscript = '';
+              let interimTranscript = '';
+              
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                
+                if (event.results[i].isFinal) {
+                  finalTranscript += transcript;
+                } else {
+                  interimTranscript += transcript;
+                }
+              }
+
+              // Update transcript display
+              setTranscript(interimTranscript || finalTranscript);
+
+              // Handle final results
+              if (finalTranscript.trim()) {
+                console.log('Final transcript:', finalTranscript);
+                setTranscript(finalTranscript.trim());
+                
+                // Stop listening immediately on mobile
+                if (isMobile && recognitionRef.current) {
+                  recognitionRef.current.stop();
+                }
+                
+                handleUserSpeech(finalTranscript.trim());
+              }
+            };
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            recognitionRef.current.onstart = () => {
+              console.log('Speech recognition started');
+              setIsListening(true);
+              setError('');
+              
+              // Set timeout for mobile devices
+              if (isMobile) {
+                timeoutRef.current = setTimeout(() => {
+                  if (recognitionRef.current && isListening) {
+                    console.log('Mobile timeout - stopping recognition');
+                    recognitionRef.current.stop();
+                  }
+                }, 8000); // 8 seconds timeout for mobile
+              }
+            };
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            recognitionRef.current.onerror = (event: any) => {
+              console.error('Speech recognition error:', event.error);
+              
+              // Clear timeout
+              if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+              }
+              
+              setIsListening(false);
+              
+              // Handle specific mobile errors
+              if (event.error === 'no-speech') {
+                setError('No speech detected. Try speaking louder.');
+              } else if (event.error === 'audio-capture') {
+                setError('Microphone access denied or unavailable.');
+              } else if (event.error === 'network') {
+                setError('Network error. Check your connection.');
+              } else if (event.error === 'not-allowed') {
+                setError('Microphone permission denied. Please allow microphone access.');
+              } else {
+                setError(`Speech error: ${event.error}`);
+              }
+            };
+
+            recognitionRef.current.onend = () => {
+              console.log('Speech recognition ended');
+              setIsListening(false);
+              
+              // Clear timeout
+              if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+              }
+            };
+          }
+        } catch (error) {
+          console.error('Failed to initialize speech recognition:', error);
+          setError('Speech recognition initialization failed');
+        }
+      } else {
+        setError('Speech recognition not supported in this browser');
+      }
+
+      // Initialize Speech Synthesis with mobile handling
+      if (window.speechSynthesis) {
+        synthRef.current = window.speechSynthesis;
         
-        if (finalTranscript.trim()) {
-          console.log('Speech recognized:', finalTranscript);
-          setTranscript(finalTranscript);
-          setIsListening(false);
-          handleUserSpeech(finalTranscript);
+        // Mobile-specific: Pre-load voices
+        if (isMobile) {
+          const loadVoices = () => {
+            const voices = synthRef.current?.getVoices();
+            console.log('Available voices:', voices?.length);
+          };
+          
+          loadVoices();
+          if (synthRef.current.onvoiceschanged !== undefined) {
+            synthRef.current.onvoiceschanged = loadVoices;
+          }
         }
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
-      setError(`Speech error: ${event.error}`);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    // Initialize Speech Synthesis
-    synthRef.current = window.speechSynthesis;
+    // Delay initialization slightly for mobile devices
+    if (isMobile) {
+      setTimeout(initializeSpeechRecognition, 500);
+    } else {
+      initializeSpeechRecognition();
+    }
     
-    // Load voices when they become available
-    const loadVoices = () => {
-      console.log('Voices loaded:', window.speechSynthesis.getVoices().length);
-    };
-    
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-    loadVoices();
+    isInitializedRef.current = true;
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      if (apiTimeoutRef.current) {
-        clearTimeout(apiTimeoutRef.current);
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.warn('Error stopping recognition:', e);
+        }
       }
       if (synthRef.current) {
         synthRef.current.cancel();
       }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
-  }, []);
+  }, [isMobile]);
 
-  const handleUserSpeech = useCallback(async (userMessage: string) => {
-    if (!userMessage.trim()) return;
-    
-    setIsProcessing(true);
-    setError('');
-    setTtsStatus('');
-    
+  const handleUserSpeech = useCallback(async (userMessage: string): Promise<void> => {
+    if (isProcessing) {
+      console.log('Already processing, skipping...');
+      return;
+    }
+
     try {
-      // Set timeout for API call (15 seconds)
-      const controller = new AbortController();
-      apiTimeoutRef.current = setTimeout(() => controller.abort(), 15000);
+      setIsProcessing(true);
+      setError('');
+      console.log('Processing user speech:', userMessage);
       
-      console.log('Sending request to API:', userMessage);
+      // Call your API route with mobile-specific timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), isMobile ? 15000 : 10000);
       
       const response = await fetch('/api/ai-response', {
         method: 'POST',
@@ -871,272 +471,229 @@ export default function VoiceHandler({ isCallActive, onTranscript, onResponse }:
         },
         body: JSON.stringify({
           message: userMessage,
-          context: `This is during a video call meeting`,
-          conversationHistory: conversationHistory.slice(-3)
+          context: `This is during a video call meeting${isMobile ? ' on mobile device' : ''}`,
+          conversationHistory: conversationHistory
         }),
         signal: controller.signal
       });
 
-      if (apiTimeoutRef.current) {
-        clearTimeout(apiTimeoutRef.current);
-        apiTimeoutRef.current = null;
-      }
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('API response received:', data);
+      console.log('API response:', data);
       
       if (data.success && data.response) {
-        const aiResponse = data.response;
+        const aiResponse: string = data.response;
         
         // Update conversation history
         const newHistory: ConversationItem[] = [
           ...conversationHistory,
           { user: userMessage, assistant: aiResponse, timestamp: new Date() }
-        ].slice(-10);
+        ].slice(-10); // Keep only last 10 exchanges
         
         setConversationHistory(newHistory);
-        setLastResponse(aiResponse);
+        
+        // Speak the response with mobile optimization
+        speakResponse(aiResponse);
         
         // Callback to parent component
-        onTranscript?.(userMessage);
         onResponse?.(aiResponse);
+        onTranscript?.(userMessage);
         
-        // Try to speak the response
-        speakResponse(aiResponse);
       } else {
-        throw new Error(data.error || 'Failed to get AI response');
+        console.error('API response error:', data);
+        setError('Failed to get AI response');
+        speakResponse("I'm sorry, I couldn't process that. Could you try again?");
       }
       
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Error processing speech:', error);
       
-      let errorMessage = 'Error processing your request';
-      let fallbackResponse = "I'm having trouble right now. Please try again.";
-      
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          errorMessage = 'Request timeout. Please check your connection.';
-          fallbackResponse = "I'm taking too long to respond. Please try again.";
-        } else if (error.message.includes('Failed to fetch')) {
-          errorMessage = 'Network connection error. Please check your internet.';
-          fallbackResponse = "I can't connect right now. Please check your internet.";
-        }
+      if (error instanceof Error && error.name === 'AbortError') {
+        setError('Request timed out. Please try again.');
+        speakResponse("The request took too long. Can you try again?");
+      } else {
+        setError('Error processing your message');
+        speakResponse("I'm having trouble right now. Can you repeat that?");
       }
-      
-      setError(errorMessage);
-      setLastResponse(fallbackResponse);
-      onResponse?.(fallbackResponse);
     } finally {
       setIsProcessing(false);
     }
-  }, [conversationHistory, onTranscript, onResponse]);
+  }, [conversationHistory, isMobile, isProcessing, onResponse, onTranscript]);
 
-  // Mobile TTS solution with fallback to text display
-  const speakResponse = useCallback((text: string) => {
-    if (!text) return;
-    
-    console.log('Attempting to speak:', text);
-    setTtsStatus('Preparing speech...');
-    
-    if (!synthRef.current || isMobile) {
-      // On mobile, we'll primarily rely on text display due to TTS limitations
-      console.log('Using text display instead of TTS on mobile');
-      setTtsStatus('Response displayed as text');
-      return;
-    }
-    
+  const speakResponse = useCallback((text: string): void => {
+    if (!synthRef.current || !text) return;
+
     // Cancel any ongoing speech
     synthRef.current.cancel();
-    setIsSpeaking(false);
-    ttsRetryCountRef.current = 0;
     
     const utterance = new SpeechSynthesisUtterance(text);
     
-    // Settings for desktop
-    utterance.rate = 1;
+    // Mobile-optimized settings
+    utterance.rate = isMobile ? 0.8 : 0.9;
     utterance.pitch = 1;
-    utterance.volume = 1;
+    utterance.volume = isMobile ? 1 : 0.8;
     
-    // Select appropriate voice
-    const voices = synthRef.current.getVoices();
-    if (voices.length > 0) {
-      const preferredVoice = voices.find(voice => 
-        voice.lang.startsWith('en')
-      ) || voices[0];
-      
-      utterance.voice = preferredVoice;
+    // Select appropriate voice for mobile
+    if (isMobile && synthRef.current.getVoices().length > 0) {
+      const voices = synthRef.current.getVoices();
+      const englishVoice = voices.find(voice => voice.lang.startsWith('en-')) || voices[0];
+      if (englishVoice) {
+        utterance.voice = englishVoice;
+      }
     }
     
     utterance.onstart = () => {
       console.log('TTS started');
       setIsSpeaking(true);
-      setTtsStatus('Speaking...');
     };
     
     utterance.onend = () => {
       console.log('TTS ended');
       setIsSpeaking(false);
-      setTtsStatus('');
     };
     
-    utterance.onerror = (event) => {
-      console.error('TTS error:', event);
+    utterance.onerror = (error) => {
+      console.error('TTS error:', error);
       setIsSpeaking(false);
-      setTtsStatus('TTS failed, showing text response');
     };
-    
-    try {
+
+    // Mobile-specific: Add small delay before speaking
+    if (isMobile) {
+      setTimeout(() => {
+        synthRef.current?.speak(utterance);
+      }, 100);
+    } else {
       synthRef.current.speak(utterance);
-    } catch (err) {
-      console.error('Failed to start TTS:', err);
-      setTtsStatus('TTS failed, showing text response');
     }
   }, [isMobile]);
 
-  const toggleListening = useCallback(() => {
+  const toggleListening = (): void => {
     if (!recognitionRef.current) {
-      setError('Speech recognition not available');
+      setError('Speech recognition not supported in this browser');
       return;
     }
 
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
-    } else {
-      setTranscript('');
-      setError('');
-      setTtsStatus('');
-      
-      // Stop any ongoing speech before starting recognition
-      if (synthRef.current) {
-        synthRef.current.cancel();
-        setIsSpeaking(false);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
-      
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (err) {
-        console.error('Failed to start recognition:', err);
-        setError('Failed to start microphone. Please check permissions.');
+    } else {
+      if (isSpeaking) {
+        stopSpeaking();
+        // Add delay before starting recognition on mobile
+        if (isMobile) {
+          setTimeout(() => startListening(), 200);
+        } else {
+          startListening();
+        }
+      } else {
+        startListening();
       }
     }
-  }, [isListening]);
+  };
 
-  const stopSpeaking = useCallback(() => {
+  const startListening = (): void => {
+    setTranscript('');
+    setError('');
+    
+    try {
+      // Request microphone permissions explicitly on mobile
+      if (isMobile && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(() => {
+            console.log('Microphone permission granted');
+            recognitionRef.current?.start();
+          })
+          .catch((error) => {
+            console.error('Microphone permission denied:', error);
+            setError('Microphone access required. Please enable microphone permission.');
+          });
+      } else {
+        recognitionRef.current?.start();
+      }
+    } catch (error) {
+      console.error('Error starting recognition:', error);
+      setError('Failed to start speech recognition');
+    }
+  };
+
+  const stopSpeaking = (): void => {
     if (synthRef.current) {
       synthRef.current.cancel();
       setIsSpeaking(false);
-      setTtsStatus('');
     }
-  }, []);
-
-  const retryLastRequest = useCallback(() => {
-    if (transcript) {
-      handleUserSpeech(transcript);
-    }
-  }, [transcript, handleUserSpeech]);
+  };
 
   if (!isCallActive) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-      {/* Main controls - centered at bottom */}
-      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-4 pointer-events-auto">
-        {/* Voice controls */}
-        <div className="flex items-center gap-3 bg-black/70 backdrop-blur-md rounded-full p-3 shadow-lg border border-white/20">
-          <button
-            onClick={toggleListening}
-            className={`p-3 rounded-full ${
-              isListening 
-                ? 'bg-red-500 text-white animate-pulse' 
-                : isProcessing
-                  ? 'bg-orange-500 text-white'
-                  : 'bg-blue-500 text-white hover:bg-blue-600'
-            }`}
-            disabled={isSpeaking || isProcessing}
-            style={{ touchAction: 'manipulation' }}
-          >
-            {isProcessing ? (
-              <RefreshCw className="w-6 h-6 animate-spin" />
-            ) : isListening ? (
-              <Mic className="w-6 h-6" />
-            ) : (
-              <MicOff className="w-6 h-6" />
-            )}
-          </button>
-          
-          <button
-            onClick={stopSpeaking}
-            className={`p-3 rounded-full ${
-              isSpeaking 
-                ? 'bg-orange-500 text-white' 
-                : 'bg-gray-300 text-gray-500 dark:bg-gray-600 dark:text-gray-300'
-            }`}
-            disabled={!isSpeaking}
-            style={{ touchAction: 'manipulation' }}
-          >
-            {isSpeaking ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
-          </button>
+    <div className="fixed top-2 right-2 
+                    md:top-auto md:right-auto md:bottom-4 md:right-4 
+                    bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border max-w-[200px]
+                    md:max-w-sm md:p-4 z-50">
+      <div className="flex items-center gap-1 mb-1">
+        <button
+          onClick={toggleListening}
+          className={`p-1 rounded-full md:p-2 ${
+            isListening 
+              ? 'bg-red-500 text-white animate-pulse' 
+              : 'bg-blue-500 text-white hover:bg-blue-600'
+          }`}
+          disabled={isSpeaking || isProcessing}
+        >
+          {isListening ? <Mic className="w-3 h-3 md:w-4 md:h-4" /> : <MicOff className="w-3 h-3 md:w-4 md:h-4" />}
+        </button>
+        
+        <button
+          onClick={stopSpeaking}
+          className={`p-1 rounded-full md:p-2 ${
+            isSpeaking 
+              ? 'bg-orange-500 text-white' 
+              : 'bg-gray-300 text-gray-500'
+          }`}
+          disabled={!isSpeaking}
+        >
+          {isSpeaking ? <Volume2 className="w-3 h-3 md:w-4 md:h-4" /> : <VolumeX className="w-3 h-3 md:w-4 md:h-4" />}
+        </button>
+        
+        <div className="flex-1 text-[10px] md:text-sm">
+          <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
+            isListening ? 'bg-red-500' : 
+            isProcessing ? 'bg-yellow-500' :
+            isSpeaking ? 'bg-green-500' : 'bg-gray-300'
+          } inline-block mr-1 md:mr-2`}></div>
+          {isProcessing ? 'Thinking...' :
+           isListening ? 'Listening...' : 
+           isSpeaking ? 'Speaking...' : 
+           isMobile ? 'Tap mic' : 'Click mic'}
         </div>
-
-        {/* Status indicator */}
-        <div className="bg-black/70 text-white text-sm px-4 py-2 rounded-full backdrop-blur-md">
-          {isListening ? 'Listening...' : 
-           isProcessing ? 'Processing...' : 
-           isSpeaking ? 'Speaking...' : 'Tap mic to talk'}
-        </div>
-
-        {/* Response display (always visible on mobile) */}
-        {(lastResponse || isMobile) && (
-          <div className="bg-black/70 text-white p-4 rounded-2xl max-w-md backdrop-blur-md border border-white/10">
-            <div className="flex items-center gap-2 mb-2">
-              <MessageSquare className="w-4 h-4 text-blue-300" />
-              <span className="font-medium">AI Response</span>
-            </div>
-            <div className="text-sm">
-              {lastResponse || (isProcessing ? "Processing your request..." : "Ask me something!")}
-            </div>
-            {ttsStatus && (
-              <div className="text-xs text-blue-300 mt-2">
-                {ttsStatus}
-              </div>
-            )}
-          </div>
-        )}
       </div>
-
-      {/* Error display */}
-      {error && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg pointer-events-auto">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">{error}</span>
-            {transcript && (
-              <button 
-                onClick={retryLastRequest}
-                className="ml-3 text-white"
-                title="Retry"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+      
+      {isMobile && (
+        <div className="text-[8px] text-blue-500 mb-1">
+          Mobile Mode
         </div>
       )}
-
-      {/* Transcript display */}
+      
       {transcript && (
-        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 bg-black/70 text-white px-4 py-2 rounded-lg pointer-events-auto">
-          <div className="text-sm">
-            <span className="font-medium">You: </span>
-            {transcript}
-          </div>
+        <div className="text-[10px] text-gray-600 dark:text-gray-300 mb-1 md:text-sm md:mb-2 break-words">
+          <strong>You:</strong> {transcript}
+        </div>
+      )}
+      
+      {error && (
+        <div className="text-[10px] text-red-500 mb-1 md:text-sm md:mb-2 break-words">
+          {error}
         </div>
       )}
     </div>

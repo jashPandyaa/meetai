@@ -73,7 +73,7 @@
 // }
 
 // app/api/ai-response/route.ts
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface ConversationItem {
@@ -117,7 +117,8 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse>>
     console.log('Request body received:', { 
       messageLength: body.message?.length,
       hasContext: !!body.context,
-      historyLength: body.conversationHistory?.length || 0
+      historyLength: body.conversationHistory?.length || 0,
+      message: body.message // Log the actual message for debugging
     });
 
     const { message, context, conversationHistory }: RequestBody = body;
@@ -131,49 +132,84 @@ export async function POST(req: NextRequest): Promise<NextResponse<ApiResponse>>
       }, { status: 400 });
     }
 
+    // Check for mobile context
+    const isMobileRequest = context?.includes('mobile device');
+    
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-1.5-flash',
       generationConfig: {
         temperature: 0.7,
         topK: 40,
         topP: 0.8,
-        maxOutputTokens: 150, // Limit response length for voice
+        maxOutputTokens: isMobileRequest ? 100 : 150, // Shorter responses for mobile
+        candidateCount: 1,
+        stopSequences: [],
       },
+      safetySettings: [
+        {
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, 
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+      ],
     });
 
     // Build context from conversation history
     let historyContext = '';
     if (conversationHistory && conversationHistory.length > 0) {
       historyContext = conversationHistory
-        .slice(-5) // Only keep last 5 exchanges
+        .slice(-3) // Only keep last 3 exchanges for mobile optimization
         .map(item => `User: ${item.user}\nAssistant: ${item.assistant}`)
         .join('\n');
     }
 
+    // Mobile-optimized prompt
     const prompt = `You are an AI assistant in a video call meeting. Keep your responses:
-- Conversational and natural (like you're speaking)
-- Brief (1-2 sentences maximum)
+- VERY brief (1 sentence maximum${isMobileRequest ? ' for mobile' : ''})
+- Conversational and natural (like speaking to a friend)
 - Helpful and engaging
 - Professional but friendly
+- Direct and to the point
 
-${historyContext ? `Previous conversation:\n${historyContext}\n` : ''}
-${context ? `Current context: ${context}\n` : ''}
+${historyContext ? `Recent chat:\n${historyContext}\n` : ''}
+${context ? `Context: ${context}\n` : ''}
 
-User just said: "${message}"
+User said: "${message}"
 
-Your response (speak naturally):`;
+Reply briefly and naturally:`;
 
     console.log('Sending request to Gemini API...');
     
-    const result = await model.generateContent(prompt);
+    // Set timeout for mobile requests
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout')), isMobileRequest ? 15000 : 10000)
+    );
+    
+    const apiCall = model.generateContent(prompt);
+    
+    const result = await Promise.race([apiCall, timeout]) as Awaited<ReturnType<typeof model.generateContent>>;
     const response = result.response.text();
 
     console.log('Gemini API response received:', {
       responseLength: response.length,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      isMobile: isMobileRequest,
+      response: response.substring(0, 100) + '...' // Log first 100 chars for debugging
     });
 
     if (!response || response.trim().length === 0) {
+      console.warn('Empty response from Gemini API');
       return NextResponse.json({
         success: false,
         error: 'Empty response from AI',
@@ -182,9 +218,25 @@ Your response (speak naturally):`;
       }, { status: 500 });
     }
 
+    // Clean up the response - remove any markdown or special formatting
+    let cleanResponse = response.trim()
+      .replace(/\*\*/g, '') // Remove bold markdown
+      .replace(/\*/g, '')   // Remove italic markdown  
+      .replace(/`/g, '')    // Remove code markdown
+      .replace(/#+\s/g, '') // Remove headers
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .replace(/\s+/g, ' ') // Normalize spaces
+      .trim();
+
+    // Ensure response isn't too long for TTS
+    if (cleanResponse.length > (isMobileRequest ? 200 : 300)) {
+      const sentences = cleanResponse.split(/[.!?]+/);
+      cleanResponse = sentences[0] + (sentences[0].match(/[.!?]$/) ? '' : '.');
+    }
+
     return NextResponse.json({
       success: true,
-      response: response.trim(),
+      response: cleanResponse,
       timestamp: new Date().toISOString()
     });
 
@@ -198,15 +250,21 @@ Your response (speak naturally):`;
       console.error('Error details:', error.message, error.stack);
       
       // Handle specific error types
-      if (error.message.includes('API key')) {
+      if (error.message.includes('API key') || error.message.includes('authentication')) {
         errorMessage = 'API authentication error';
         fallbackResponse = "I'm having authentication issues. Please try again later.";
       } else if (error.message.includes('quota') || error.message.includes('limit')) {
         errorMessage = 'API quota exceeded';
         fallbackResponse = "I'm receiving too many requests right now. Please try again in a moment.";
-      } else if (error.message.includes('network') || error.message.includes('fetch')) {
+      } else if (error.message.includes('network') || error.message.includes('fetch') || error.message.includes('timeout')) {
         errorMessage = 'Network connection error';
         fallbackResponse = "I'm having connection issues. Please check your internet and try again.";
+      } else if (error.message.includes('SAFETY')) {
+        errorMessage = 'Content safety filter triggered';
+        fallbackResponse = "I can't respond to that. Could you ask something else?";
+      } else if (error.message.includes('timeout')) {
+        errorMessage = 'Request timeout';
+        fallbackResponse = "That took too long to process. Can you try a shorter question?";
       }
     }
     
