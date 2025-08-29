@@ -8,6 +8,7 @@ A full-stack SaaS platform that brings intelligent, custom AI agents into your r
 [![React](https://img.shields.io/badge/React-19-blue.svg?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev/)
 [![Stack](https://img.shields.io/badge/Stack-Next.js_Full_Stack-blue?style=for-the-badge)](https://nextjs.org/)
 [![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black.svg?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 
 ---
 
