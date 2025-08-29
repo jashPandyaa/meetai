@@ -716,6 +716,8 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
     }
   }, [isMobile]);
 
+ // components/VoiceHandler.tsx
+
   const toggleListening = (): void => {
     if (!recognitionRef.current) {
       setError('Speech recognition not available');
@@ -746,6 +748,17 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       if (isSpeaking) {
         stopSpeaking();
       }
+
+      // ======================= FIX STARTS HERE =======================
+      // MOBILE AUDIO WORKAROUND: "Warm up" the TTS engine with a silent utterance.
+      // This must be triggered by a direct user action (this button click).
+      if (isMobile && synthRef.current && !synthRef.current.speaking) {
+        console.log('🔊 WARMING UP TTS ENGINE (MOBILE WORKAROUND)');
+        const silentUtterance = new SpeechSynthesisUtterance('');
+        silentUtterance.volume = 0; // Make it completely silent
+        synthRef.current.speak(silentUtterance);
+      }
+      // ======================== FIX ENDS HERE ========================
       
       // Add delay before starting recognition (especially for mobile)
       const startDelay = isMobile ? 300 : 100;
@@ -754,7 +767,6 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       }, startDelay);
     }
   };
-
   const startListening = (): void => {
     console.log('🎤 Starting listening process...');
     
