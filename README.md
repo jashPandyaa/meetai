@@ -80,24 +80,24 @@ The development of this project followed a structured, chapter-by-chapter proces
 
 ## Code Standards
 
-TypeScript for type safety
-ESLint for code quality
-Prettier for formatting
-Mobile-first responsive design
-Accessibility considerations
+- TypeScript for type safety
+- ESLint for code quality
+- Prettier for formatting
+- Mobile-first responsive design
+- Accessibility considerations
 
 
 ## 🐛 Known Issues & Limitations
 
-Mobile AI Voice: Gemini API restrictions prevent voice responses on mobile devices
-Speech Recognition: May have varying accuracy across different browsers/devices
-Network Dependencies: Requires stable internet for real-time features
+- Mobile AI Voice: Gemini API restrictions prevent voice responses on mobile devices
+- Speech Recognition: May have varying accuracy across different browsers/devices
+- Network Dependencies: Requires stable internet for real-time features
 
 
 ## 📞 Support & Issues
 
-Issues: GitHub Issues
-Discussions: GitHub Discussions
+- Issues: GitHub Issues
+- Discussions: GitHub Discussions
 
 
 ## 📄 License
@@ -105,23 +105,23 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-Stream - Video and chat infrastructure
-OpenAI - AI summaries and transcript processing
-Google Gemini - Real-time AI responses
-Vercel - Deployment platform
-Neon - PostgreSQL hosting
-Polar - Payment processing
+- Stream - Video and chat infrastructure
+- OpenAI - AI summaries and transcript processing
+- Google Gemini - Real-time AI responses
+- Vercel - Deployment platform
+- Neon - PostgreSQL hosting
+- Polar - Payment processing
 
 
 ## 📊 Project Stats
 
-Framework: Next.js 15 with App Router
-Language: TypeScript
-Database: PostgreSQL with Drizzle ORM
-Real-time: Stream SDK for video/chat
-AI: OpenAI + Gemini API integration
-Auth: Better Auth with social providers
-Payments: Polar subscription management
+- Framework: Next.js 15 with App Router
+- Language: TypeScript
+- Database: PostgreSQL with Drizzle ORM
+- Real-time: Stream SDK for video/chat
+- AI: OpenAI + Gemini API integration
+- Auth: Better Auth with social providers
+- Payments: Polar subscription management
 
 
 # Built with ❤️ by jashPandyaa
