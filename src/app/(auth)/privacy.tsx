@@ -155,8 +155,8 @@ export const PrivacyView = () => {
                                     If you have any questions about this Privacy Policy or our privacy practices, please contact us at:
                                 </p>
                                 <div className="bg-muted/50 p-3 rounded border text-sm">
-                                    <strong>Email:</strong> privacy@meet-ai.com<br />
-                                    <strong>Address:</strong> Meet.AI Privacy Team, [Your Address]
+                                    <strong>Email:</strong> jashpandyaa@gmail.com<br />
+                                    <strong>Address:</strong> Meet.AI Privacy Team
                                 </div>
                             </section>
                         </div>
