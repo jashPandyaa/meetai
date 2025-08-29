@@ -271,19 +271,41 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef<boolean>(false);
+  const lastProcessedTranscript = useRef<string>('');
 
-  // Detect mobile device
+  // Improved mobile detection
   useEffect(() => {
     const checkMobile = (): boolean => {
-      const userAgent = navigator.userAgent || navigator.vendor || (window as unknown as { opera?: string }).opera;
-      const uaString = typeof userAgent === 'string' ? userAgent : '';
-      const isMobileDevice: boolean = /android|blackberry|iemobile|ipad|iphone|ipod|opera mini|webos/i.test(uaString) ||
-                             Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+      // Check multiple mobile indicators
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.innerWidth < 768;
+      const userAgent = navigator.userAgent.toLowerCase();
+      const mobileKeywords = ['android', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone', 'mobile'];
+      const hasMobileKeyword = mobileKeywords.some(keyword => userAgent.includes(keyword));
+      
+      // More comprehensive mobile detection
+      const isMobileDevice = isTouchDevice || hasMobileKeyword || 
+        (isSmallScreen && navigator.userAgent.includes('Mobile'));
+      
+      console.log('🔍 Mobile detection:', {
+        isTouchDevice,
+        isSmallScreen,
+        hasMobileKeyword,
+        userAgent: userAgent.substring(0, 50) + '...',
+        finalResult: isMobileDevice
+      });
+      
       setIsMobile(isMobileDevice);
       return isMobileDevice;
     };
 
     checkMobile();
+    
+    // Re-check on window resize
+    const handleResize = () => checkMobile();
+    window.addEventListener('resize', handleResize);
+    
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Initialize Speech Recognition with mobile-specific handling
@@ -299,53 +321,82 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
           recognitionRef.current = new SpeechRecognition();
           
           if (recognitionRef.current) {
-            // Mobile-optimized settings
-            recognitionRef.current.continuous = false; // Always false for better mobile compatibility
-            recognitionRef.current.interimResults = true; // Enable to catch results
+            // Optimized settings for both desktop and mobile
+            recognitionRef.current.continuous = false; // Always false for reliability
+            recognitionRef.current.interimResults = true;
             recognitionRef.current.lang = 'en-US';
             recognitionRef.current.maxAlternatives = 1;
             
-            // Mobile-specific timeouts
+            // Mobile-specific optimizations
             if (isMobile) {
-              recognitionRef.current.grammars = undefined; // Clear grammars for better mobile performance
+              recognitionRef.current.grammars = undefined;
             }
 
+            // Improved result handling
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onresult = (event: any) => {
-              console.log('🎤 Speech recognition result event:', event);
-              console.log('🎤 Results length:', event.results.length);
-              console.log('🎤 Is mobile:', isMobile);
+              console.log('🎤 Speech result event:', {
+                resultsLength: event.results.length,
+                resultIndex: event.resultIndex,
+                isMobile
+              });
               
               let finalTranscript = '';
               let interimTranscript = '';
               
+              // Process all results from the current result index
               for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                const confidence = event.results[i][0].confidence;
+                const result = event.results[i];
+                const transcript = result[0].transcript;
+                const confidence = result[0].confidence;
+                const isFinal = result.isFinal;
                 
-                console.log(`🎤 Result ${i}: "${transcript}" (final: ${event.results[i].isFinal}, confidence: ${confidence})`);
+                console.log(`🎤 Result ${i}:`, {
+                  transcript: `"${transcript}"`,
+                  isFinal,
+                  confidence,
+                  length: transcript.length
+                });
                 
-                if (event.results[i].isFinal) {
+                if (isFinal) {
                   finalTranscript += transcript;
                 } else {
                   interimTranscript += transcript;
                 }
               }
 
-              // Update transcript display immediately
+              // Update display transcript immediately
               const displayTranscript = finalTranscript || interimTranscript;
               if (displayTranscript.trim()) {
                 setTranscript(displayTranscript.trim());
               }
 
-              // Handle final results OR mobile interim results (mobile often doesn't send final)
-              const transcriptToProcess = finalTranscript.trim() || (isMobile && interimTranscript.trim());
+              // Determine what to process
+              let transcriptToProcess = '';
               
-              if (transcriptToProcess && transcriptToProcess.length > 2) {
-                console.log('🎤 Processing transcript:', transcriptToProcess);
-                setTranscript(transcriptToProcess);
+              if (finalTranscript.trim()) {
+                // We have final results - use them
+                transcriptToProcess = finalTranscript.trim();
+                console.log('🎤 Using final transcript:', transcriptToProcess);
+              } else if (isMobile && interimTranscript.trim().length > 3) {
+                // On mobile, process interim results if they're substantial
+                // and haven't been processed yet
+                const interim = interimTranscript.trim();
+                if (interim !== lastProcessedTranscript.current && interim.length > 3) {
+                  transcriptToProcess = interim;
+                  console.log('🎤 Using mobile interim transcript:', transcriptToProcess);
+                }
+              }
+
+              // Process if we have something new and meaningful
+              if (transcriptToProcess && 
+                  transcriptToProcess.length > 2 && 
+                  transcriptToProcess !== lastProcessedTranscript.current) {
                 
-                // Stop listening immediately
+                lastProcessedTranscript.current = transcriptToProcess;
+                console.log('🎤 Processing transcript:', transcriptToProcess);
+                
+                // Stop listening
                 if (recognitionRef.current) {
                   try {
                     recognitionRef.current.stop();
@@ -354,10 +405,10 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
                   }
                 }
                 
-                // Process the speech
+                // Process with slight delay for mobile
                 setTimeout(() => {
                   handleUserSpeech(transcriptToProcess);
-                }, 100);
+                }, isMobile ? 200 : 100);
               }
             };
 
@@ -367,14 +418,17 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
               setIsListening(true);
               setError('');
               setTranscript('');
+              lastProcessedTranscript.current = '';
               
-              // Set timeout for mobile devices (more aggressive)
+              // Clear any existing timeout
               if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
               }
               
+              // Set appropriate timeout based on device
+              const timeoutMs = isMobile ? 8000 : 12000;
               timeoutRef.current = setTimeout(() => {
-                console.log('⏰ Recognition timeout - forcing stop');
+                console.log('⏰ Recognition timeout after', timeoutMs, 'ms');
                 if (recognitionRef.current && isListening) {
                   try {
                     recognitionRef.current.stop();
@@ -382,12 +436,12 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
                     console.warn('Error in timeout stop:', e);
                   }
                 }
-              }, isMobile ? 6000 : 10000); // Shorter timeout for mobile
+              }, timeoutMs);
             };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recognitionRef.current.onerror = (event: any) => {
-              console.error('Speech recognition error:', event.error);
+              console.error('🎤 Speech recognition error:', event.error);
               
               // Clear timeout
               if (timeoutRef.current) {
@@ -397,18 +451,18 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
               
               setIsListening(false);
               
-              // Handle specific mobile errors
-              if (event.error === 'no-speech') {
-                setError('No speech detected. Try speaking louder.');
-              } else if (event.error === 'audio-capture') {
-                setError('Microphone access denied or unavailable.');
-              } else if (event.error === 'network') {
-                setError('Network error. Check your connection.');
-              } else if (event.error === 'not-allowed') {
-                setError('Microphone permission denied. Please allow microphone access.');
-              } else {
-                setError(`Speech error: ${event.error}`);
-              }
+              // Handle specific errors
+              const errorMessages: Record<string, string> = {
+                'no-speech': 'No speech detected. Try speaking louder.',
+                'audio-capture': 'Microphone not available.',
+                'not-allowed': 'Microphone permission denied.',
+                'network': 'Network error. Check connection.',
+                'service-not-allowed': 'Speech service not available.',
+                'bad-grammar': 'Speech recognition error.',
+                'language-not-supported': 'Language not supported.'
+              };
+              
+              setError(errorMessages[event.error] || `Speech error: ${event.error}`);
             };
 
             recognitionRef.current.onend = () => {
@@ -424,21 +478,22 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
           }
         } catch (error) {
           console.error('Failed to initialize speech recognition:', error);
-          setError('Speech recognition initialization failed');
+          setError('Speech recognition not available');
         }
       } else {
-        setError('Speech recognition not supported in this browser');
+        console.warn('Speech recognition not supported');
+        setError('Speech recognition not supported');
       }
 
-      // Initialize Speech Synthesis with mobile handling
+      // Initialize Speech Synthesis
       if (window.speechSynthesis) {
         synthRef.current = window.speechSynthesis;
         
-        // Mobile-specific: Pre-load voices
+        // Load voices for mobile
         if (isMobile) {
           const loadVoices = () => {
-            const voices = synthRef.current?.getVoices();
-            console.log('Available voices:', voices?.length);
+            const voices = synthRef.current?.getVoices() || [];
+            console.log('🔊 Available voices:', voices.length);
           };
           
           loadVoices();
@@ -449,9 +504,9 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       }
     };
 
-    // Delay initialization slightly for mobile devices
+    // Initialize with appropriate delay for mobile
     if (isMobile) {
-      setTimeout(initializeSpeechRecognition, 500);
+      setTimeout(initializeSpeechRecognition, 1000);
     } else {
       initializeSpeechRecognition();
     }
@@ -463,7 +518,7 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
         try {
           recognitionRef.current.stop();
         } catch (e) {
-          console.warn('Error stopping recognition:', e);
+          console.warn('Cleanup error:', e);
         }
       }
       if (synthRef.current) {
@@ -481,31 +536,35 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       return;
     }
 
-    console.log('🚀 Starting handleUserSpeech:', userMessage);
-    console.log('🚀 Is mobile:', isMobile);
+    console.log('🚀 Processing speech:', {
+      message: userMessage,
+      isMobile,
+      messageLength: userMessage.length
+    });
 
     try {
       setIsProcessing(true);
       setError('');
       
-      // Call your API route with mobile-specific timeout
       const controller = new AbortController();
-      const timeoutMs = isMobile ? 20000 : 15000; // Increased timeout for mobile
+      const timeoutMs = isMobile ? 25000 : 20000; // Increased timeout for mobile
       const timeoutId = setTimeout(() => {
         console.log('⏰ Request timeout after', timeoutMs, 'ms');
         controller.abort();
       }, timeoutMs);
       
-      console.log('📡 Making API request...');
-      
       const requestBody = {
         message: userMessage,
-        context: `This is during a video call meeting${isMobile ? ' on mobile device' : ''}`,
-        conversationHistory: conversationHistory,
-        meetingId: meetingId // Include meeting ID
+        context: `Video call meeting${isMobile ? ' on mobile device' : ''}`,
+        conversationHistory: conversationHistory.slice(-5), // Keep fewer items for mobile
+        meetingId: meetingId
       };
       
-      console.log('📡 Request body:', requestBody);
+      console.log('📡 API Request:', {
+        messageLength: userMessage.length,
+        isMobile,
+        historyLength: conversationHistory.length
+      });
       
       const response = await fetch('/api/ai-response', {
         method: 'POST',
@@ -517,60 +576,60 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       });
 
       clearTimeout(timeoutId);
-      console.log('📡 Response status:', response.status);
+      console.log('📡 Response status:', response.status, response.statusText);
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ HTTP error:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        throw new Error(`API error: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('📡 API response data:', data);
+      console.log('📡 API response:', {
+        success: data.success,
+        responseLength: data.response?.length || 0,
+        hasError: !!data.error
+      });
       
       if (data.success && data.response) {
         const aiResponse: string = data.response;
-        console.log('✅ AI response received:', aiResponse);
         
         // Update conversation history
         const newHistory: ConversationItem[] = [
           ...conversationHistory,
           { user: userMessage, assistant: aiResponse, timestamp: new Date() }
-        ].slice(-10); // Keep only last 10 exchanges
+        ].slice(-8); // Keep fewer items for mobile performance
         
         setConversationHistory(newHistory);
-        
-        // Clear any error
         setError('');
         
-        // Speak the response with mobile optimization
-        console.log('🔊 Starting TTS...');
+        console.log('🔊 Starting TTS with response:', aiResponse.substring(0, 50) + '...');
         speakResponse(aiResponse);
         
-        // Callback to parent component
+        // Callbacks
         onResponse?.(aiResponse);
         onTranscript?.(userMessage);
         
       } else {
         console.error('❌ API response error:', data);
-        const errorMsg = data.error || 'Failed to get AI response';
+        const errorMsg = data.error || 'No response received';
         setError(errorMsg);
-        speakResponse("I'm sorry, I couldn't process that. Could you try again?");
+        speakResponse("Sorry, I couldn't process that. Please try again.");
       }
       
     } catch (error) {
-      console.error('❌ Error processing speech:', error);
+      console.error('❌ Error in handleUserSpeech:', error);
       
-      let errorMessage = 'Error processing your message';
-      let spokenMessage = "I'm having trouble right now. Can you repeat that?";
+      let errorMessage = 'Processing error';
+      let spokenMessage = "Something went wrong. Please try again.";
       
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          errorMessage = 'Request timed out. Please try again.';
-          spokenMessage = "That took too long to process. Can you try again?";
+          errorMessage = 'Request timed out';
+          spokenMessage = "That took too long. Please try again.";
         } else if (error.message.includes('Failed to fetch')) {
-          errorMessage = 'Network error. Check your connection.';
-          spokenMessage = "I can't connect right now. Check your internet.";
+          errorMessage = 'Network error';
+          spokenMessage = "Connection problem. Check your internet.";
         } else {
           errorMessage = error.message;
         }
@@ -580,52 +639,78 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       speakResponse(spokenMessage);
     } finally {
       setIsProcessing(false);
-      console.log('🏁 handleUserSpeech finished');
+      console.log('🏁 handleUserSpeech completed');
     }
-  }, [conversationHistory, isMobile, isProcessing, onResponse, onTranscript]);
+  }, [conversationHistory, isMobile, isProcessing, meetingId, onResponse, onTranscript]);
 
   const speakResponse = useCallback((text: string): void => {
-    if (!synthRef.current || !text) return;
+    if (!synthRef.current || !text) {
+      console.warn('🔊 TTS not available or no text');
+      return;
+    }
+
+    console.log('🔊 Speaking:', text.substring(0, 50) + '...');
 
     // Cancel any ongoing speech
     synthRef.current.cancel();
     
     const utterance = new SpeechSynthesisUtterance(text);
     
-    // Mobile-optimized settings
-    utterance.rate = isMobile ? 0.8 : 0.9;
-    utterance.pitch = 1;
-    utterance.volume = isMobile ? 1 : 0.8;
-    
-    // Select appropriate voice for mobile
-    if (isMobile && synthRef.current.getVoices().length > 0) {
+    // Optimized settings for mobile
+    if (isMobile) {
+      utterance.rate = 0.85;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      // Try to use a good voice on mobile
       const voices = synthRef.current.getVoices();
-      const englishVoice = voices.find(voice => voice.lang.startsWith('en-')) || voices[0];
-      if (englishVoice) {
-        utterance.voice = englishVoice;
+      if (voices.length > 0) {
+        const preferredVoice = voices.find(voice => 
+          voice.lang.startsWith('en-') && voice.localService
+        ) || voices.find(voice => 
+          voice.lang.startsWith('en-')
+        ) || voices[0];
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+          console.log('🔊 Using voice:', preferredVoice.name);
+        }
       }
+    } else {
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.volume = 0.8;
     }
     
     utterance.onstart = () => {
-      console.log('TTS started');
+      console.log('🔊 TTS started');
       setIsSpeaking(true);
     };
     
     utterance.onend = () => {
-      console.log('TTS ended');
+      console.log('🔊 TTS ended');
       setIsSpeaking(false);
     };
     
     utterance.onerror = (error) => {
-      console.error('TTS error:', error);
+      console.error('🔊 TTS error:', error);
       setIsSpeaking(false);
     };
 
-    // Mobile-specific: Add small delay before speaking
+    // Mobile-specific: Add delay and ensure synthesis is ready
     if (isMobile) {
-      setTimeout(() => {
-        synthRef.current?.speak(utterance);
-      }, 100);
+      // Ensure voices are loaded
+      if (synthRef.current.getVoices().length === 0) {
+        console.log('🔊 Waiting for voices...');
+        synthRef.current.onvoiceschanged = () => {
+          console.log('🔊 Voices loaded, speaking now');
+          synthRef.current?.speak(utterance);
+        };
+      } else {
+        setTimeout(() => {
+          synthRef.current?.speak(utterance);
+        }, 200);
+      }
     } else {
       synthRef.current.speak(utterance);
     }
@@ -633,49 +718,82 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
 
   const toggleListening = (): void => {
     if (!recognitionRef.current) {
-      setError('Speech recognition not supported in this browser');
+      setError('Speech recognition not available');
       return;
     }
 
+    console.log('🎤 Toggle listening:', { 
+      currentlyListening: isListening, 
+      isSpeaking, 
+      isMobile,
+      isProcessing
+    });
+
     if (isListening) {
-      recognitionRef.current.stop();
+      // Stop listening
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping recognition:', e);
+      }
       setIsListening(false);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
     } else {
+      // Start listening
       if (isSpeaking) {
         stopSpeaking();
-        // Add delay before starting recognition on mobile
-        if (isMobile) {
-          setTimeout(() => startListening(), 200);
-        } else {
-          startListening();
-        }
-      } else {
-        startListening();
       }
+      
+      // Add delay before starting recognition (especially for mobile)
+      const startDelay = isMobile ? 300 : 100;
+      setTimeout(() => {
+        startListening();
+      }, startDelay);
     }
   };
 
   const startListening = (): void => {
+    console.log('🎤 Starting listening process...');
+    
     setTranscript('');
     setError('');
+    lastProcessedTranscript.current = '';
     
     try {
-      // Request microphone permissions explicitly on mobile
+      // For mobile, explicitly request microphone permission
       if (isMobile && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then(() => {
-            console.log('Microphone permission granted');
-            recognitionRef.current?.start();
+        console.log('🎤 Requesting mobile microphone permission...');
+        navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          } 
+        })
+          .then((stream) => {
+            console.log('🎤 Microphone permission granted');
+            // Release the stream immediately as we only needed permission
+            stream.getTracks().forEach(track => track.stop());
+            
+            // Now start recognition
+            setTimeout(() => {
+              try {
+                recognitionRef.current?.start();
+              } catch (e) {
+                console.error('Error starting recognition after permission:', e);
+                setError('Could not start speech recognition');
+              }
+            }, 100);
           })
           .catch((error) => {
-            console.error('Microphone permission denied:', error);
-            setError('Microphone access required. Please enable microphone permission.');
+            console.error('🎤 Microphone permission denied:', error);
+            setError('Microphone access required. Please enable in browser settings.');
           });
       } else {
+        // Desktop or fallback
         recognitionRef.current?.start();
       }
     } catch (error) {
@@ -703,32 +821,34 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       <div className="flex items-center gap-1 mb-1">
         <button
           onClick={toggleListening}
-          className={`p-1 rounded-full md:p-2 ${
+          className={`p-1 rounded-full md:p-2 transition-all ${
             isListening 
               ? 'bg-red-500 text-white animate-pulse' 
               : 'bg-blue-500 text-white hover:bg-blue-600'
           }`}
-          disabled={isSpeaking || isProcessing}
+          disabled={isProcessing}
+          aria-label={isListening ? 'Stop listening' : 'Start listening'}
         >
           {isListening ? <Mic className="w-3 h-3 md:w-4 md:h-4" /> : <MicOff className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
         
         <button
           onClick={stopSpeaking}
-          className={`p-1 rounded-full md:p-2 ${
+          className={`p-1 rounded-full md:p-2 transition-all ${
             isSpeaking 
               ? 'bg-orange-500 text-white' 
               : 'bg-gray-300 text-gray-500'
           }`}
           disabled={!isSpeaking}
+          aria-label={isSpeaking ? 'Stop speaking' : 'Not speaking'}
         >
           {isSpeaking ? <Volume2 className="w-3 h-3 md:w-4 md:h-4" /> : <VolumeX className="w-3 h-3 md:w-4 md:h-4" />}
         </button>
         
         <div className="flex-1 text-[10px] md:text-sm">
           <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
-            isListening ? 'bg-red-500' : 
-            isProcessing ? 'bg-yellow-500' :
+            isProcessing ? 'bg-yellow-500 animate-pulse' :
+            isListening ? 'bg-red-500 animate-pulse' : 
             isSpeaking ? 'bg-green-500' : 'bg-gray-300'
           } inline-block mr-1 md:mr-2`}></div>
           {isProcessing ? 'Thinking...' :
@@ -740,7 +860,7 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       
       {isMobile && (
         <div className="text-[8px] text-blue-500 mb-1">
-          Mobile Mode
+          📱 Mobile Mode Active
         </div>
       )}
       
@@ -752,7 +872,15 @@ export default function VoiceHandler({ isCallActive, meetingId, onTranscript, on
       
       {error && (
         <div className="text-[10px] text-red-500 mb-1 md:text-sm md:mb-2 break-words">
-          {error}
+          ⚠️ {error}
+        </div>
+      )}
+      
+      {/* Debug info in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="text-[8px] text-gray-500 mt-1 border-t pt-1">
+          Mobile: {isMobile ? 'Yes' : 'No'} | 
+          Proc: {isProcessing ? 'Yes' : 'No'}
         </div>
       )}
     </div>
