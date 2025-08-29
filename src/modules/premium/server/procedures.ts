@@ -5,22 +5,36 @@ import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 import { count, eq } from "drizzle-orm";
 
 export const premiumRouter = createTRPCRouter({
-    getCurrentSubscription : protectedProcedure.query(async ({ ctx }) => {
-        const customer = await polarClient.customers.getStateExternal({
-            externalId: ctx.auth.user.id,
-        });
+    getCurrentSubscription: protectedProcedure.query(async ({ ctx }) => {
+        try {
+            // First, try to get the customer from Polar
+            const customer = await polarClient.customers.getStateExternal({
+                externalId: ctx.auth.user.id,
+            });
 
-        const subscription = customer.activeSubscriptions[0];
+            // Check if the activeSubscriptions array exists and has items
+            if (!customer.activeSubscriptions || customer.activeSubscriptions.length === 0) {
+                // If not, the user has no active subscription. This is a valid state.
+                return null;
+            }
 
-        if(!subscription){
+            // Safely get the subscription ONLY if the array is not empty
+            const subscription = customer.activeSubscriptions[0];
+            
+            // Now that we know 'subscription' exists, we can safely get the product
+            const product = await polarClient.products.get({
+                id: subscription.productId,
+            });
+            
+            return product;
+
+        } catch (error) {
+            // This catch block will handle errors if the customer is not found in Polar
+            // or if there's any other API communication issue.
+            console.error("Polar API error in getCurrentSubscription:", error);
+            // Return null to indicate no active subscription was found.
             return null;
         }
-
-        const product = await polarClient.products.get({
-            id : subscription.productId,
-        });
-        
-        return product;
     }),
 
     getProducts : protectedProcedure.query(async () => {
